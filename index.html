@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IXA Synth</title>
+<style>
+:root{color-scheme:dark;--bg:#10131a;--panel:#1a202b;--panel2:#222b38;--ink:#edf2f7;--muted:#aab6c5;--accent:#8bd3ff;--line:#354253}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui, sans-serif}
+header{padding:18px 22px;background:#151b24;border-bottom:1px solid var(--line);display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+h1{font-size:22px;margin:0}header p{margin:0;color:var(--muted)}
+main{max-width:1250px;margin:auto;padding:18px;display:grid;gap:14px}
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{background:var(--panel2);color:var(--ink);border:1px solid #506176;border-radius:7px;padding:8px 12px;cursor:pointer}
+button.primary{background:#145b83;border-color:#3189b8}button:active,.key.active{background:#276b91}
+.status{color:var(--muted);margin-left:auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:14px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0}
+h2{font-size:16px;margin:0 0 12px;color:var(--accent)}
+h3{font-size:13px;margin:12px 0 7px;color:#d5e5f3}
+.control{display:grid;grid-template-columns:minmax(110px,1fr) minmax(110px,1.3fr) 48px;gap:8px;align-items:center;margin:8px 0}
+.control label{color:#d7e0ea}.control output{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--accent)}input[type=number],select{width:100%;background:#111821;color:var(--ink);border:1px solid #526174;border-radius:5px;padding:5px}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:7px 0}.row label{display:flex;gap:6px;align-items:center;color:#d7e0ea}
+.adrs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+.adrs label{display:grid;gap:4px;color:var(--muted);font-size:12px}
+.adrs input{width:100%;min-width:0}
+.keyboard{display:flex;gap:4px;flex-wrap:wrap;margin-top:10px}
+.key{min-width:35px;height:58px;padding:4px;background:#e8edf2;color:#15202b;border:1px solid #aeb9c5;border-radius:0 0 5px 5px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;font-size:11px}
+.key.black{background:#303b4a;color:#fff;height:46px;min-width:31px}
+small,.hint{color:var(--muted)}
+footer{color:var(--muted);font-size:12px;padding:4px 2px}
+@media(max-width:520px){.control{grid-template-columns:100px 1fr 42px}.adrs{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<header><h1>IXA Synth</h1><p>Polyphonic IXA synthesis · AudioWorklet · MIDI</p></header>
+<main>
+  <div class="toolbar">
+    <button id="start" class="primary">Start audio</button>
+    <button id="midi">Enable MIDI</button>
+    <button id="panic">All notes off</button>
+    <span class="status" id="status">Audio stopped · MIDI not connected</span>
+  </div>
+
+  <div class="grid">
+    <section>
+      <h2>Oscillator</h2>
+      <div class="control"><label for="maxIndex">Maximum index</label><input id="maxIndex" type="range" min="-20" max="20" step=".05" value="2"><output></output></div>
+      <div class="control"><label for="ratioCoarse">Ratio (coarse)</label><input id="ratioCoarse" type="range" min="1" max="16" step="1" value="2"><output></output></div>
+      <div class="control"><label for="ratioFraction">Ratio fraction</label><input id="ratioFraction" type="range" min="-.5" max=".5" step=".001" value="0"><output></output></div>
+      <div class="row"><label><input id="roundRatio" type="checkbox"> Round ratio to integer</label><strong id="ratioReadout">2.000</strong></div>
+      <div class="control"><label for="maxAmplitude">Maximum amplitude</label><input id="maxAmplitude" type="range" min="0" max=".5" step=".005" value=".22"><output></output></div>
+      <div class="control"><label for="oversampling">Oversampling</label><select id="oversampling"><option>1</option><option>2</option><option selected>4</option><option>8</option></select><output></output></div>
+      <div class="control"><label for="cutoff">Low-pass cutoff</label><input id="cutoff" type="range" min="12000" max="14000" step="10" value="13000"><output></output></div>
+      <small>One-pole, 6 dB/octave low-pass filter. The cutoff is clamped below Nyquist when necessary.</small>
+    </section>
+
+    <section>
+      <h2>Vibrato</h2>
+      <div class="control"><label for="vibRate">LFO rate (Hz)</label><input id="vibRate" type="range" min=".1" max="12" step=".1" value="5"><output></output></div>
+      <div class="control"><label for="vibDepth">Depth (cents)</label><input id="vibDepth" type="range" min="0" max="100" step="1" value="0"><output></output></div>
+      <div class="control"><label for="vibDelay">Delay (s)</label><input id="vibDelay" type="range" min="0" max="2" step=".01" value=".15"><output></output></div>
+      <div class="control"><label for="vibFade">Fade-in (s)</label><input id="vibFade" type="range" min="0" max="4" step=".01" value=".5"><output></output></div>
+    </section>
+
+    <section>
+      <h2>Keyboard & velocity</h2>
+      <div class="control"><label for="velocity">Simulated velocity</label><input id="velocity" type="range" min="1" max="127" step="1" value="100"><output></output></div>
+      <div class="row"><span>Octave: <strong id="octave">C4</strong></span><span>Keyboard range starts at middle C</span></div>
+      <p class="hint">Computer keys: Q 2 W 3 E R 5 T 6 Y 7 U I 9 O 0 P [ = chromatic notes. Numeric keypad * / changes octave; + / − changes velocity.</p>
+      <div class="keyboard" id="visualKeys"></div>
+      <p class="hint">Click the keys above, use your computer keyboard, or connect a MIDI keyboard.</p>
+    </section>
+  </div>
+
+  <div class="grid">
+    <section>
+      <h2>Amplitude envelope</h2>
+      <div class="adrs">
+        <label>Attack (s)<input id="ampAttack" type="number" min="0" max="20" step=".001" value=".01"></label>
+        <label>Decay (s)<input id="ampDecay" type="number" min="0" max="20" step=".001" value=".2"></label>
+        <label>Sustain<input id="ampSustain" type="number" min="0" max="1" step=".01" value=".75"></label>
+        <label>Release (s)<input id="ampRelease" type="number" min="0" max="20" step=".001" value=".25"></label>
+      </div>
+      <div class="row"><label><input id="ampLog" type="checkbox"> Logarithmic envelope</label></div>
+      <h3>Velocity response</h3>
+      <div class="control"><label for="ampVel">Amplitude sensitivity</label><input id="ampVel" type="range" min="0" max="1" step=".01" value=".8"><output></output></div>
+      <div class="control"><label for="ampTimeVel">Timing sensitivity</label><input id="ampTimeVel" type="range" min="0" max="1" step=".01" value=".5"><output></output></div>
+    </section>
+
+    <section>
+      <h2>Index envelope</h2>
+      <div class="adrs">
+        <label>Attack (s)<input id="indexAttack" type="number" min="0" max="20" step=".001" value=".01"></label>
+        <label>Decay (s)<input id="indexDecay" type="number" min="0" max="20" step=".001" value=".25"></label>
+        <label>Sustain<input id="indexSustain" type="number" min="0" max="1" step=".01" value=".5"></label>
+        <label>Release (s)<input id="indexRelease" type="number" min="0" max="20" step=".001" value=".2"></label>
+      </div>
+      <div class="row"><label><input id="indexLog" type="checkbox"> Logarithmic envelope</label></div>
+      <h3>Velocity response</h3>
+      <div class="control"><label for="indexVel">Index sensitivity</label><input id="indexVel" type="range" min="0" max="1" step=".01" value=".8"><output></output></div>
+      <div class="control"><label for="indexTimeVel">Timing sensitivity</label><input id="indexTimeVel" type="range" min="0" max="1" step=".01" value=".5"><output></output></div>
+    </section>
+  </div>
+  <footer>Run from localhost or HTTPS (not file://). MIDI requires browser permission and a supported browser. Audio starts after pressing Start audio.</footer>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let context = null, synth = null, ratioParam = null, midiAccess = null;
+  let octaveOffset = 0;
+  let simulatedVelocity = 100;
+  const held = new Map();
+  const keyboardMap = [
+    ["KeyQ",0,"Q"],["Digit2",1,"2"],["KeyW",2,"W"],["Digit3",3,"3"],
+    ["KeyE",4,"E"],["KeyR",5,"R"],["Digit5",6,"5"],["KeyT",7,"T"],
+    ["Digit6",8,"6"],["KeyY",9,"Y"],["Digit7",10,"7"],["KeyU",11,"U"],
+    ["KeyI",12,"I"],["Digit9",13,"9"],["KeyO",14,"O"],["Digit0",15,"0"],
+    ["KeyP",16,"P"],["BracketLeft",17,"["]
+  ];
+  const keyByCode = new Map(keyboardMap.map(x => [x[0], x]));
+
+  function val(id) { return Number($(id).value); }
+  function clamp(x,a,b) { return Math.max(a,Math.min(b,x)); }
+  function setStatus(s) { $("status").textContent = s; }
+
+  function configFromUI() {
+    return {
+      maxIndex: val("maxIndex"),
+      maxAmplitude: val("maxAmplitude"),
+      roundRatio: $("roundRatio").checked,
+      oversampling: val("oversampling"),
+      cutoff: val("cutoff"),
+      amp: {
+        attack: clamp(val("ampAttack") || 0,0,20),
+        decay: clamp(val("ampDecay") || 0,0,20),
+        sustain: clamp(val("ampSustain") || 0,0,1),
+        release: clamp(val("ampRelease") || 0,0,20),
+        curve: $("ampLog").checked ? "log" : "linear",
+        velocityAmount: val("ampVel"),
+        velocityTime: val("ampTimeVel")
+      },
+      index: {
+        attack: clamp(val("indexAttack") || 0,0,20),
+        decay: clamp(val("indexDecay") || 0,0,20),
+        sustain: clamp(val("indexSustain") || 0,0,1),
+        release: clamp(val("indexRelease") || 0,0,20),
+        curve: $("indexLog").checked ? "log" : "linear",
+        velocityAmount: val("indexVel"),
+        velocityTime: val("indexTimeVel")
+      },
+      vibrato: {
+        rate: val("vibRate"),
+        depth: val("vibDepth"),
+        delay: val("vibDelay"),
+        fade: val("vibFade")
+      }
+    };
+  }
+
+  function updateRatioReadout() {
+    const raw = val("ratioCoarse") + val("ratioFraction");
+    $("ratioReadout").textContent = ($("roundRatio").checked ? Math.round(raw) : raw).toFixed(3);
+  }
+
+  function sendRatio() {
+    const raw = val("ratioCoarse") + val("ratioFraction");
+    if (ratioParam && context) ratioParam.setValueAtTime(raw, context.currentTime);
+    updateRatioReadout();
+  }
+
+  function sendConfig() {
+    if (synth) synth.port.postMessage({type:"config",config:configFromUI()});
+    sendRatio();
+  }
+
+  async function startAudio() {
+    if (synth) { await context.resume(); return; }
+    context = new (window.AudioContext || window.webkitAudioContext)();
+    try {
+      await context.audioWorklet.addModule("./ixa-voice-processor.js");
+      synth = new AudioWorkletNode(context,"ixa-synth-processor",{
+        numberOfInputs:0, numberOfOutputs:1, outputChannelCount:[2]
+      });
+      synth.connect(context.destination);
+      ratioParam = synth.parameters.get("ratio");
+      sendConfig();
+      setStatus("Audio running · " + (midiAccess ? "MIDI enabled" : "MIDI not connected"));
+      $("start").textContent = "Resume audio";
+    } catch (err) {
+      console.error(err);
+      setStatus("Could not start audio: " + err.message);
+    }
+  }
+
+  function noteOn(id,note,velocity) {
+    if (!synth) return;
+    synth.port.postMessage({type:"noteOn",id,note,velocity});
+  }
+  function noteOff(id) {
+    if (synth) synth.port.postMessage({type:"noteOff",id});
+  }
+  function noteFromKey(code) {
+    const entry = keyByCode.get(code);
+    return entry ? 60 + octaveOffset + entry[1] : null;
+  }
+
+  document.addEventListener("keydown", async e => {
+    if (e.code === "NumpadMultiply") { e.preventDefault(); octaveOffset += 12; $("octave").textContent = "C" + (4 + octaveOffset/12); return; }
+    if (e.code === "NumpadDivide") { e.preventDefault(); octaveOffset -= 12; $("octave").textContent = "C" + (4 + octaveOffset/12); return; }
+    if (e.code === "NumpadAdd" || e.code === "NumpadSubtract") {
+      e.preventDefault();
+      simulatedVelocity = clamp(simulatedVelocity + (e.code === "NumpadAdd" ? 8 : -8),1,127);
+      $("velocity").value = simulatedVelocity; refreshOutputs(); return;
+    }
+    const note = noteFromKey(e.code);
+    if (note === null || e.repeat || e.target.matches("input,select,textarea,button")) return;
+    e.preventDefault();
+    await startAudio();
+    const id = "key-" + e.code;
+    if (!held.has(id)) {
+      held.set(id,note);
+      noteOn(id,note,simulatedVelocity);
+      const button = document.querySelector(`[data-code="${e.code}"]`);
+      if (button) button.classList.add("active");
+    }
+  });
+
+  document.addEventListener("keyup", e => {
+    const id = "key-" + e.code;
+    if (held.has(id)) {
+      noteOff(id); held.delete(id);
+      const button = document.querySelector(`[data-code="${e.code}"]`);
+      if (button) button.classList.remove("active");
+    }
+  });
+
+  window.addEventListener("blur", () => {
+    for (const id of held.keys()) noteOff(id);
+    held.clear();
+    document.querySelectorAll(".key.active").forEach(k => k.classList.remove("active"));
+  });
+
+  function refreshOutputs() {
+    document.querySelectorAll(".control input[type=range]").forEach(input => {
+      const out = input.parentElement.querySelector("output");
+      if (out) out.textContent = input.id === "cutoff" ? (Number(input.value)/1000).toFixed(2)+" kHz" : input.value;
+    });
+    $("velocity").value = simulatedVelocity;
+    updateRatioReadout();
+  }
+
+  document.querySelectorAll("input,select").forEach(el => {
+    el.addEventListener("input", () => {
+      if (el.id === "velocity") simulatedVelocity = val("velocity");
+      refreshOutputs();
+      if (el.id === "ratioCoarse" || el.id === "ratioFraction") sendRatio();
+      else sendConfig();
+    });
+    el.addEventListener("change", sendConfig);
+  });
+
+  $("start").addEventListener("click", startAudio);
+  $("panic").addEventListener("click", () => {
+    if (synth) synth.port.postMessage({type:"allOff"});
+    held.clear();
+    document.querySelectorAll(".key.active").forEach(k => k.classList.remove("active"));
+  });
+
+  async function enableMIDI() {
+    if (!navigator.requestMIDIAccess) {
+      setStatus("Web MIDI is not supported by this browser.");
+      return;
+    }
+    try {
+      midiAccess = await navigator.requestMIDIAccess();
+      for (const input of midiAccess.inputs.values()) input.onmidimessage = handleMIDI;
+      midiAccess.onstatechange = () => {
+        for (const input of midiAccess.inputs.values()) input.onmidimessage = handleMIDI;
+        setStatus("Audio " + (context && context.state === "running" ? "running" : "stopped") + " · MIDI devices: " + midiAccess.inputs.size);
+      };
+      setStatus("MIDI enabled · devices: " + midiAccess.inputs.size);
+    } catch (err) {
+      setStatus("MIDI access failed: " + err.message);
+    }
+  }
+
+  function handleMIDI(event) {
+    const [status, data1, data2] = event.data;
+    const command = status & 0xf0;
+    const channel = status & 0x0f;
+    const id = "midi-" + channel + "-" + data1;
+    if (command === 0x90 && data2 > 0) {
+      if (!synth) {
+        startAudio().then(() => noteOn(id,data1,data2));
+      } else {
+        noteOn(id,data1,data2);
+      }
+    } else if (command === 0x80 || (command === 0x90 && data2 === 0)) {
+      noteOff(id);
+    }
+  }
+  $("midi").addEventListener("click", enableMIDI);
+
+  // Clickable one-octave keyboard preview.
+  keyboardMap.slice(0,13).forEach(([code,semitone,label]) => {
+    const b = document.createElement("button");
+    b.className = "key" + ([1,3,6,8,10].includes(semitone) ? " black" : "");
+    b.textContent = label;
+    b.dataset.code = code;
+    b.addEventListener("pointerdown", async e => {
+      e.preventDefault(); await startAudio();
+      if (!held.has("key-"+code)) {
+        held.set("key-"+code,60+octaveOffset+semitone);
+        noteOn("key-"+code,60+octaveOffset+semitone,simulatedVelocity);
+        b.classList.add("active");
+      }
+    });
+    const end = () => { if (held.has("key-"+code)) { noteOff("key-"+code); held.delete("key-"+code); } b.classList.remove("active"); };
+    b.addEventListener("pointerup",end); b.addEventListener("pointerleave",end); b.addEventListener("pointercancel",end);
+    $("visualKeys").appendChild(b);
+  });
+
+  refreshOutputs();
+  sendConfig();
+})();
+</script>
+</body>
+</html>
